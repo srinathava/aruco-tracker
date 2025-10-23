@@ -1,7 +1,7 @@
 # trace_with_aruco.py
-# Live pose from webcam + ArUco markers defined in tags.json
+# Live pose from webcam + ArUco markers defined by a ChArUco board layout
 # Saves: trace.csv (x_mm,y_mm,theta_deg,timestamp) and trace.svg
-import json, time, math, argparse
+import time, math, argparse
 from pathlib import Path
 import cv2
 import numpy as np
@@ -9,43 +9,30 @@ from picamera2 import Picamera2
 import os
 from datetime import datetime
 
-def load_tags_json(path):
-    data = json.loads(Path(path).read_text())
-    assert data["dict"] == "DICT_6X6_250"
-    tag_size_mm = float(data["tag_size_mm"])
-    tags_map = {int(k): v for k, v in data["tags"].items()}
-    return tag_size_mm, tags_map
+def build_marker_corner_map(squares_x, squares_y, square_mm, marker_mm):
+    dict6x6 = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
+    board = cv2.aruco.CharucoBoard((squares_x, squares_y), square_mm, marker_mm, dict6x6)
+    ids = board.getIds()
+    obj_points = board.getObjPoints()
+    if ids is None or len(ids) != len(obj_points):
+        raise ValueError("Failed to extract marker geometry from Charuco board definition")
+    corner_map = {int(marker_id): np.asarray(corners, dtype=np.float32)
+                  for marker_id, corners in zip(ids, obj_points)}
+    return marker_mm, corner_map, board.getDictionary()
 
-def build_object_points(tag_id, tag_size_mm, tag_map):
-    # Return 3D corners (Z=0) of the tag in world coords, order must match detectMarkers corners
-    # OpenCV aruco corners order: top-left, top-right, bottom-right, bottom-left
-    # We stored tag map as center positions? No—above we stored top-left of each cell, *but*
-    # for solvePnP we want the *tag corners in world frame*. Our generator places the marker’s
-    # top-left at (x_mm, y_mm). So corners are:
-    x0 = tag_map[tag_id]["x_mm"]
-    y0 = tag_map[tag_id]["y_mm"]
-    s = tag_size_mm
-    corners = np.array([
-        [x0,     y0,     0.0],
-        [x0+s,   y0,     0.0],
-        [x0+s,   y0+s,   0.0],
-        [x0,     y0+s,   0.0],
-    ], dtype=np.float32)
-    return corners
-
-def estimate_pose_from_tags(corners_list, ids, cam_mtx, dist, tag_size_mm, tag_map):
+def estimate_pose_from_tags(corners_list, ids, cam_mtx, dist, corner_map):
     # Stack 2D-3D correspondences from all visible tags
     obj_pts = []
     img_pts = []
     for c, tid in zip(corners_list, ids.flatten()):
-        if tid not in tag_map: 
+        if tid not in corner_map:
             continue
-        obj = build_object_points(tid, tag_size_mm, tag_map)
+        obj = corner_map[tid]
         img = c.reshape(-1, 2).astype(np.float32)
         obj_pts.append(obj)
         img_pts.append(img)
-    if len(obj_pts) == 0: 
-        print(f"    No valid markers found in tag_map")
+    if len(obj_pts) == 0:
+        print(f"    No valid markers found in board map")
         return None, None
     
     obj_pts = np.concatenate(obj_pts, axis=0)
@@ -148,16 +135,20 @@ def load_camera_yaml(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tags", default="out/tags.json", help="tags.json from generator")
     ap.add_argument("--calib", default="out/camera.yaml", help="OpenCV camera calibration YAML")
-    ap.add_argument("--fps", type=float, default=20.0)
+    ap.add_argument("--squares-x", type=int, default=5, help="Charuco board squares along X")
+    ap.add_argument("--squares-y", type=int, default=7, help="Charuco board squares along Y")
+    ap.add_argument("--square-mm", type=float, default=33.0, help="Charuco square size in millimeters")
+    ap.add_argument("--marker-mm", type=float, default=22.0, help="ArUco marker size in millimeters")
+    ap.add_argument("--fps", type=float, default=10)
     ap.add_argument("--minsamples", type=int, default=3)
     ap.add_argument("--debug-dir", default="debug/trace", help="Directory for debug frames")
-    ap.add_argument("--save-debug", action="store_true", help="Save debug frames with pose visualization")
-    ap.add_argument("--max-frames", type=int, default=30, help="Maximum number of frames to process")
+    ap.add_argument("--save-debug", action="store_true", help="Save debug frames with pose visualization", default=True)
+    ap.add_argument("--max-frames", type=int, default=15, help="Maximum number of frames to process")
     args = ap.parse_args()
 
-    tag_size_mm, tag_map = load_tags_json(args.tags)
+    marker_size_mm, corner_map, aruco_dict = build_marker_corner_map(
+        args.squares_x, args.squares_y, args.square_mm, args.marker_mm)
     cam_mtx, dist = load_camera_yaml(args.calib)
 
     # Create debug directory if saving debug frames
@@ -165,12 +156,12 @@ def main():
         debug_dir = args.debug_dir
         os.makedirs(debug_dir, exist_ok=True)
 
-    dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
-    det = cv2.aruco.ArucoDetector(dict, cv2.aruco.DetectorParameters())
+    det = cv2.aruco.ArucoDetector(aruco_dict, cv2.aruco.DetectorParameters())
 
     # Use Picamera2 instead of cv2.VideoCapture
     cam = Picamera2()
-    cam.configure(cam.create_still_configuration(main={"size": (640, 480)}))
+    cam.configure(cam.create_still_configuration(main={"size": (800, 600)}))
+    cam.set_controls({"ExposureTime": 1000, "AnalogueGain": 2.0})
     cam.start()
 
     samples = []
@@ -179,21 +170,34 @@ def main():
     last_pose = None  # For pose filtering
     try:
         while frame_count < args.max_frames:
+            print(f"Frame {frame_count+1}: Capturing...")
             frame = cam.capture_array()
             frame_count += 1
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             corners, ids, _ = det.detectMarkers(gray)
+
+
+            # Save debug frame if requested
+            if args.save_debug:
+                debug_frame = frame.copy()
             
             if ids is not None and len(ids) >= args.minsamples:
                 print(f"Frame {frame_count}: Detected {len(ids)} markers with IDs: {ids.flatten().tolist()}")
+
+                if args.save_debug:
+                    cv2.aruco.drawDetectedMarkers(debug_frame, corners, ids)
                 
-                # Check which markers are in our tag map
-                valid_ids = [tid for tid in ids.flatten() if tid in tag_map]
-                print(f"Frame {frame_count}: Valid markers in tag_map: {valid_ids}")
+                # Check which markers belong to the board
+                valid_ids = [tid for tid in ids.flatten() if tid in corner_map]
+                print(f"Frame {frame_count}: Valid markers on board: {valid_ids}")
                 
-                rvec, tvec = estimate_pose_from_tags(corners, ids, cam_mtx, dist, tag_size_mm, tag_map)
+                rvec, tvec = estimate_pose_from_tags(corners, ids, cam_mtx, dist, corner_map)
                 if rvec is not None:
                     x_mm, y_mm, yaw = rvec_tvec_to_xy_theta(rvec, tvec)
+                    if args.save_debug:
+                        draw_axes(debug_frame, cam_mtx, dist, rvec, tvec, scale=marker_size_mm)
+                        cv2.putText(debug_frame, f"x={x_mm:.1f}mm y={y_mm:.1f}mm th={math.degrees(yaw):.1f}deg",
+                                    (10,30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
                     
                     # Simple pose filtering to avoid P3P ambiguity
                     if last_pose is not None:
@@ -209,33 +213,17 @@ def main():
                     last_pose = (x_mm, y_mm, yaw)
                     samples.append((time.time()-t0, x_mm, y_mm, yaw))
                     
-                    # Save debug frame if requested
-                    if args.save_debug:
-                        debug_frame = frame.copy()
-                        cv2.aruco.drawDetectedMarkers(debug_frame, corners, ids)
-                        draw_axes(debug_frame, cam_mtx, dist, rvec, tvec, scale=tag_size_mm)
-                        cv2.putText(debug_frame, f"x={x_mm:.1f}mm y={y_mm:.1f}mm th={math.degrees(yaw):.1f}deg",
-                                    (10,30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,255,0), 2)
-                        
-                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-                        debug_filename = f"{debug_dir}/trace_frame_{frame_count:03d}_{timestamp}.jpg"
-                        cv2.imwrite(debug_filename, debug_frame)
-                        print(f"Saved debug frame: {debug_filename}")
-                    
                     print(f"Frame {frame_count}: x={x_mm:.1f}mm y={y_mm:.1f}mm th={math.degrees(yaw):.1f}deg")
                 else:
                     print(f"Frame {frame_count}: No valid pose detected (pose estimation failed)")
-            else:
-                print(f"Frame {frame_count}: No markers detected (need {args.minsamples})")
-                # Save a sample frame to see what the camera is seeing
-                if frame_count == 1 and args.save_debug:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-                    debug_filename = f"{debug_dir}/sample_frame_{timestamp}.jpg"
-                    cv2.imwrite(debug_filename, frame)
-                    print(f"  Saved sample frame: {debug_filename}")
+
+            if args.save_debug:
+                debug_filename = f"{debug_dir}/sample_frame_{frame_count}.jpg"
+                cv2.imwrite(debug_filename, debug_frame)
+                print(f"  Saved sample frame: {debug_filename}")
             
             # Control frame rate
-            time.sleep(1.0 / args.fps)
+            time.sleep(max(0.0, 1.0 / args.fps))
             
     except KeyboardInterrupt:
         print("\nStopping trace collection...")

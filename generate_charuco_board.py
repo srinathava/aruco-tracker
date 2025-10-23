@@ -13,8 +13,8 @@ def main():
     ap = argparse.ArgumentParser(description="Generate ChArUco board and tags.json")
     ap.add_argument("--squares-x", type=int, default=5, help="Number of squares in X direction")
     ap.add_argument("--squares-y", type=int, default=7, help="Number of squares in Y direction")
-    ap.add_argument("--square-mm", type=float, default=30.0, help="Square size in mm")
-    ap.add_argument("--marker-mm", type=float, default=20.0, help="ArUco marker size in mm")
+    ap.add_argument("--square-mm", type=float, default=33.0, help="Square size in mm")
+    ap.add_argument("--marker-mm", type=float, default=22.0, help="ArUco marker size in mm")
     ap.add_argument("--output-dir", default="out", help="Output directory")
     ap.add_argument("--dpi", type=int, default=300, help="DPI for the printed board")
     args = ap.parse_args()
@@ -97,7 +97,7 @@ def main():
     print(f"Square size: {args.square_mm}mm")
     print(f"\nTo use:")
     print(f"1. Print the board: {board_print_path}")
-    print(f"2. Calibrate camera: python camera_calibrate_charuco.py --squares-x {args.squares_x} --squares-y {args.squares_y} --square-mm {args.square_mm} --marker-mm {args.marker_mm}")
+    print(f"2. Calibrate camera: python calibrate_camera_charuco.py --squares-x {args.squares_x} --squares-y {args.squares_y} --square-mm {args.square_mm} --marker-mm {args.marker_mm}")
     print(f"3. Run tracking: python trace_with_aruco.py --tags {tags_path} --calib camera.yaml")
 
 if __name__ == "__main__":

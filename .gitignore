@@ -9,6 +9,5 @@ wheels/
 # Virtual environments
 .venv
 
-calibration_debug/
+debug/
 out/
-trace_debug/

@@ -13,8 +13,8 @@ def main():
     ap.add_argument("--cam", type=int, default=0)
     ap.add_argument("--squares-x", type=int, default=5)     # inner chessboard squares (cols)
     ap.add_argument("--squares-y", type=int, default=7)     # inner chessboard squares (rows)
-    ap.add_argument("--square-mm", type=float, default=30)  # square size
-    ap.add_argument("--marker-mm", type=float, default=20)  # aruco marker size inside each square
+    ap.add_argument("--square-mm", type=float, default=33)  # square size
+    ap.add_argument("--marker-mm", type=float, default=22)  # aruco marker size inside each square
     ap.add_argument("--frames", type=int, default=40)       # how many good frames to collect
     ap.add_argument("--outfile", default="out/camera.yaml")
     ap.add_argument("--debug-dir", default="debug/calibrate")  # directory for debug images
@@ -31,7 +31,7 @@ def main():
     os.makedirs(debug_dir, exist_ok=True)
 
     cam = Picamera2()
-    cam.configure(cam.create_still_configuration(main={"size": (640, 480)}))
+    cam.configure(cam.create_still_configuration(main={"size": (800, 600)}))
     cam.start()
 
     all_corners, all_ids = [], []
