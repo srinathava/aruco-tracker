@@ -62,43 +62,13 @@ def main():
     cv2.imwrite(str(board_print_path), board_print)
     print(f"Generated printable board ({board_width_mm:.1f}x{board_height_mm:.1f}mm): {board_print_path}")
     
-    # Generate tags.json with marker positions
-    tags = {}
-    tag_id = 0
-    
-    # Calculate marker positions (top-left corners)
-    for row in range(args.squares_y - 1):  # -1 because markers are in squares, not on edges
-        for col in range(args.squares_x - 1):
-            x_mm = col * args.square_mm
-            y_mm = row * args.square_mm
-            
-            tags[str(tag_id)] = {
-                "x_mm": x_mm,
-                "y_mm": y_mm
-            }
-            tag_id += 1
-
-    # Create the JSON structure
-    data = {
-        "dict": "DICT_6X6_250",
-        "tag_size_mm": args.marker_mm,
-        "tags": tags
-    }
-
-    # Write tags.json
-    tags_path = output_dir / "tags.json"
-    with open(tags_path, 'w') as f:
-        json.dump(data, f, indent=2)
-    
-    print(f"Generated tags.json: {tags_path}")
     print(f"Board dimensions: {board_width_mm:.1f} x {board_height_mm:.1f} mm")
-    print(f"Number of markers: {len(tags)}")
     print(f"Marker size: {args.marker_mm}mm")
     print(f"Square size: {args.square_mm}mm")
     print(f"\nTo use:")
     print(f"1. Print the board: {board_print_path}")
     print(f"2. Calibrate camera: python calibrate_camera_charuco.py --squares-x {args.squares_x} --squares-y {args.squares_y} --square-mm {args.square_mm} --marker-mm {args.marker_mm}")
-    print(f"3. Run tracking: python trace_with_aruco.py --tags {tags_path} --calib camera.yaml")
+    print(f"3. Run tracking: python trace_with_aruco.py --calib camera.yaml")
 
 if __name__ == "__main__":
     main()
