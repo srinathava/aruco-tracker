@@ -164,18 +164,20 @@ def transform_local_to_world(local_corner_map, rvec_local_to_cam, tvec_local_to_
 
 def rvec_tvec_to_xy_theta(rvec, tvec):
     """Convert camera pose to x, y, theta representation"""
-    # Get the camera position in world coordinates
-    x, y, z = float(tvec[0]), float(tvec[1]), float(tvec[2])
-    
-    # Get the rotation matrix
-    R, _ = cv2.Rodrigues(rvec)
-    
-    # Calculate yaw angle from the rotation matrix
-    yaw = math.atan2(R[1,0], R[0,0])
-    
+    # solvePnP returns the pose of the object (world) in the camera frame.
+    # Convert that into the camera pose expressed in the world frame so that
+    # results are independent of which group we used for estimation.
+    R_world_to_cam, _ = cv2.Rodrigues(rvec)
+    R_cam_to_world = R_world_to_cam.T
+    cam_pos_world = -R_cam_to_world @ tvec.reshape(3, 1)
+    x, y, z = cam_pos_world.flatten().tolist()
     logging.debug(f"    Raw tvec: [{float(tvec[0]):.1f}, {float(tvec[1]):.1f}, {float(tvec[2]):.1f}]")
     logging.debug(f"    Raw rvec: [{float(rvec[0]):.1f}, {float(rvec[1]):.1f}, {float(rvec[2]):.1f}]")
-    
+    logging.debug(f"    Camera position (world): [{x:.1f}, {y:.1f}, {z:.1f}]")
+
+    # Yaw of the camera in world frame
+    yaw = math.atan2(R_cam_to_world[1, 0], R_cam_to_world[0, 0])
+
     return x, y, yaw
 
 def draw_axes(frame, cam_mtx, dist, rvec, tvec, scale=60.0):

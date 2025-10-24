@@ -9,9 +9,9 @@
             "name": "Python Debugger: trace groups replay",
             "type": "debugpy",
             "request": "launch",
-            "program": "trace_with_aruco_groups_v2.py",
+            "program": "trace_with_aruco_groups.py",
             "console": "integratedTerminal",
-            "args": "--replay-dir=captured/trace_groups_01"
+            "args": "--replay-dir=captured/trace_groups_02"
         }
     ]
 }
